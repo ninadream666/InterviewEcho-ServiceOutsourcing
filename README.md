@@ -60,29 +60,29 @@ ai-interview/
 ## 快速启动
 
 ### 1. 克隆仓库
-\```bash
+```bash
 git clone https://github.com/ninadream666/InterviewEcho.git
-\```
+```
 
 ### 2. 配置环境变量
-\```bash
+```bash
 cp .env.example .env
-\```
+```
 ### 3. 启动后端
-\```bash
+```bash
 cd backend
 python -m venv venv
 venv\Scripts\activate
 pip install -r requirements.txt
 uvicorn main:app --reload
-\```
+```
 
 ### 4. 启动前端
-\```bash
+```bash
 cd frontend
 npm install
 npm run dev
-\```
+```
 
 ---
 
