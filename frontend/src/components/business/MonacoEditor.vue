@@ -32,15 +32,16 @@ const emit = defineEmits(['update:modelValue'])
 
 const editorContainer = ref<HTMLElement | null>(null)
 let editorInstance: monaco.editor.IStandaloneCodeEditor | null = null
+let monacoInstance: typeof monaco | null = null
 
 onMounted(async () => {
   // 配置 CDN 路径，避免 Vite 本地打包 Worker 的各种问题 (对应你设定的 0.47.x 版本)
   loader.config({ paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.47.0/min/vs' } })
   
   try {
-    const monacoInstance = await loader.init()
+    monacoInstance = await loader.init()
     
-    if (editorContainer.value) {
+    if (editorContainer.value && monacoInstance) {
       // 创建编辑器实例
       editorInstance = monacoInstance.editor.create(editorContainer.value, {
         value: props.modelValue,
@@ -77,10 +78,10 @@ watch(() => props.modelValue, (newVal) => {
 
 // 监听外部语言变化，动态切换语法高亮 (例如从 Java 切换到 Python)
 watch(() => props.language, (newLang) => {
-  if (editorInstance) {
-    const monacoInstance = window.monaco
-    if (monacoInstance) {
-      monacoInstance.editor.setModelLanguage(editorInstance.getModel()!, newLang)
+  if (editorInstance && monacoInstance) {
+    const model = editorInstance.getModel()
+    if (model) {
+      monacoInstance.editor.setModelLanguage(model, newLang)
     }
   }
 })
