@@ -22,3 +22,10 @@ Thumbs.db
 # IDE
 .idea/
 .vscode/
+
+#scripts 整个目录
+scripts/
+
+# AI
+.claude/
+
