@@ -66,6 +66,11 @@ class EvaluationDetail(BaseModel):
     weaknesses: List[str]
     recommendations: str
     scores: Optional[dict] = None
+    # —— 表达分析三维子分（v2 新增） ——
+    speech_rate_score: Optional[float] = 0.0
+    clarity_score: Optional[float] = 0.0
+    confidence_score: Optional[float] = 0.0
+    expression_metrics: Optional[dict] = None  # ExpressionScore（§2.2 完整结构）
     created_at: datetime
 
 class VoiceResponse(BaseModel):
