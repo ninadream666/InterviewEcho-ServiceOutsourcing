@@ -2,25 +2,25 @@
   <el-dialog
     v-model="visible"
     :title="`开始 ${roleName} 面试`"
-    width="500px"
-    class="!rounded-[2rem] !p-8 shadow-2xl overflow-hidden"
+    width="550px"
+    class="custom-clean-dialog"
     :show-close="false"
     destroy-on-close
   >
-    <div class="space-y-8 py-4">
+    <div class="space-y-8 py-2">
       <!-- Difficulty Selection -->
-      <div class="animate-in fade-in slide-in-from-left duration-300">
-        <label class="block text-sm font-black text-gray-400 uppercase tracking-widest mb-4">选择面试难度</label>
-        <div class="flex gap-3">
+      <div>
+        <label class="block text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4">选择面试难度</label>
+        <div class="grid grid-cols-3 gap-4">
           <button
             v-for="d in ['简单', '中等', '困难']"
             :key="d"
             @click="difficulty = d"
             :class="[
-              'flex-1 py-4 rounded-2xl font-bold transition-all border-2 active:scale-95',
+              'py-3 rounded-lg font-bold transition-colors border',
               difficulty === d 
-                ? 'bg-primary border-primary text-white shadow-lg shadow-indigo-200' 
-                : 'bg-white border-gray-100 text-gray-500 hover:border-indigo-200'
+                ? 'bg-[#E6F0FA] border-[#0066CC] text-[#0066CC]' 
+                : 'bg-white border-gray-200 text-gray-600 hover:border-[#0066CC]'
             ]"
           >
             {{ d }}
@@ -29,10 +29,10 @@
       </div>
 
       <!-- Rounds Selection -->
-      <div class="animate-in fade-in slide-in-from-left duration-400">
-        <label class="block text-sm font-black text-gray-400 uppercase tracking-widest mb-4 flex justify-between">
+      <div>
+        <label class="block text-sm font-semibold text-gray-500 uppercase tracking-wider mb-2 flex justify-between">
           面试轮次 (不含开场)
-          <span class="text-primary">{{ totalRounds }} 轮</span>
+          <span class="text-[#0066CC]">{{ totalRounds }} 轮</span>
         </label>
         <div class="px-2">
           <el-slider 
@@ -46,49 +46,52 @@
       </div>
 
       <!-- Knowledge Points Selection -->
-      <div class="animate-in fade-in slide-in-from-left duration-500">
-        <label class="block text-sm font-black text-gray-400 uppercase tracking-widest mb-4">重点考察领域 (多选)</label>
+      <div>
+        <label class="block text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4">重点考察领域 (多选)</label>
         <div v-if="loading" class="flex items-center justify-center py-6">
-          <el-icon class="is-loading text-primary text-2xl"><Loading /></el-icon>
+          <el-icon class="is-loading text-[#0066CC] text-2xl"><Loading /></el-icon>
         </div>
         <div v-else-if="sections.length === 0" class="text-sm text-gray-400 py-2">
           该岗位暂无可选考察方向，面试官将按全流程进行。
         </div>
-        <div v-else class="flex flex-wrap gap-2">
-          <button
-            v-for="s in sections"
-            :key="s"
+        <div v-else class="flex flex-wrap gap-3">
+          <label 
+            v-for="s in sections" 
+            :key="s" 
+            class="cursor-pointer"
             @click="toggleSection(s)"
-            :class="[
-              'px-4 py-2 rounded-xl text-sm font-semibold transition-all border active:scale-95',
-              selectedSections.includes(s)
-                ? 'bg-indigo-50 border-indigo-200 text-indigo-600 shadow-sm'
-                : 'bg-gray-50 border-gray-100 text-gray-400 hover:bg-gray-100'
-            ]"
           >
-            {{ s }}
-          </button>
+            <span 
+              :class="[
+                'px-4 py-2 rounded-lg border text-sm transition-all select-none block',
+                selectedSections.includes(s)
+                  ? 'bg-[#0066CC] text-white border-[#0066CC]'
+                  : 'bg-white border-gray-200 text-gray-700 hover:border-[#0066CC]'
+              ]"
+            >
+              {{ s }}
+            </span>
+          </label>
         </div>
       </div>
     </div>
 
     <template #footer>
-      <div class="flex gap-4 pt-4">
-        <el-button @click="visible = false" class="!rounded-xl !px-6 !border-none !bg-gray-100 !text-gray-500 hover:!bg-gray-200 !font-bold">取消</el-button>
-        <el-button 
-          type="primary" 
+      <div class="flex gap-4 pt-2">
+        <el-button @click="visible = false" class="!px-6 !border-gray-200 !text-gray-600 hover:!bg-gray-50">取消</el-button>
+        <button 
           @click="handleConfirm" 
-          class="flex-1 !rounded-xl !h-12 !text-lg !font-bold !bg-primary !border-none !shadow-lg hover:!scale-[1.02] active:!scale-95 transition-all"
+          class="flex-1 bg-[#0066CC] hover:bg-blue-700 text-white font-bold py-2.5 px-4 rounded transition-colors active:scale-[0.98]"
         >
-          立即开始面试 →
-        </el-button>
+          确认配置并进入房间
+        </button>
       </div>
     </template>
   </el-dialog>
 </template>
 
 <script setup>
-import { ref, watch } from 'vue'
+import { ref } from 'vue'
 import { Loading } from '@element-plus/icons-vue'
 import api from '@/api'
 
@@ -111,7 +114,6 @@ const open = async (roleKey) => {
   loading.value = true
   selectedSections.value = []
   
-  // Use the passed key or the prop as fallback
   const targetKey = roleKey || props.roleKey
   if (!targetKey) {
     loading.value = false
@@ -149,14 +151,18 @@ const handleConfirm = () => {
 defineExpose({ open })
 </script>
 
-<style scoped>
-:deep(.el-dialog) {
-  background: white;
-  margin-top: 15vh !important;
+<style>
+.custom-clean-dialog {
+  border-radius: 12px !important;
 }
-:deep(.el-dialog__title) {
-  font-weight: 900;
-  font-size: 1.5rem;
+.custom-clean-dialog .el-dialog__header {
+  border-bottom: 1px solid #F3F4F6;
+  margin-right: 0;
+  padding-bottom: 16px;
+}
+.custom-clean-dialog .el-dialog__title {
+  font-weight: bold;
   color: #1F2937;
+  font-size: 1.25rem;
 }
 </style>
