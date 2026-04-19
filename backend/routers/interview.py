@@ -182,6 +182,13 @@ def get_evaluation(interview_id: int, db: Session = Depends(get_db), user_id: in
         business_scenario_score=eval_record.business_scenario_score,
         problem_solving_score=eval_record.problem_solving_score,
         total_score=eval_record.total_score,
+        
+        # 映射从数据库读出的新字段
+        speech_rate_score=eval_record.speech_rate_score,
+        clarity_score=eval_record.clarity_score,
+        confidence_score=eval_record.confidence_score,
+        expression_metrics=report_data.get("expression_metrics"),
+        
         highlights=report_data.get("highlights", report_data.get("strengths", [])),
         weaknesses=report_data.get("weaknesses", []),
         recommendations=eval_record.recommendations or report_data.get("improvement_suggestions", "继续加油！"),
@@ -203,7 +210,9 @@ async def polish_transcription(data: dict, user_id: int = Depends(get_current_us
 
 @router.post("/{interview_id}/message", response_model=schemas.MessageResponse)
 async def send_message(interview_id: int, msg: schemas.MessageSend, db: Session = Depends(get_db), user_id: int = Depends(get_current_user_id)):
-    return await process_message_logic(interview_id, msg.content, db, user_id)
+    # 纯文本模式下，我们不需要提取 user_msg.id，直接用占位符忽略即可
+    ai_msg_resp, _ = await process_message_logic(interview_id, msg.content, db, user_id)
+    return ai_msg_resp
 
 @router.post("/{interview_id}/voice", response_model=schemas.VoiceResponse)
 async def upload_voice(
@@ -230,7 +239,10 @@ async def upload_voice(
         transcript = await polish_text(raw_transcript)
         
         # 4. Process the polished text as a message
-        ai_msg_resp = await process_message_logic(interview_id, transcript, db, user_id)
+        ai_msg_resp, user_msg_id = await process_message_logic(interview_id, transcript, db, user_id)
+        
+        # 💡 注：契约 4.1 约定的地方，这里 A 同学会接手获取 user_msg_id，并将音频特征写入 voice_metrics 表
+        
         return schemas.VoiceResponse(transcription=transcript, ai_message=ai_msg_resp)
         
     finally:
@@ -251,6 +263,7 @@ async def process_message_logic(interview_id: int, content: str, db: Session, us
     user_msg = models.Message(interview_id=interview_id, sender="user", content=content)
     db.add(user_msg)
     db.commit()
+    db.refresh(user_msg)  # 修复了原来没拿主键的 bug，必须执行 refresh 才能拿到真正的 id
 
     # 3. Analyze History
     messages = db.query(models.Message).filter(models.Message.interview_id == interview_id).order_by(models.Message.created_at.asc()).all()
@@ -351,7 +364,9 @@ async def process_message_logic(interview_id: int, content: str, db: Session, us
     # MessageResponse expects id, sender, content, created_at, and is_final.
     response = schemas.MessageResponse.model_validate(ai_msg)
     response.is_final = final_is_ended
-    return response
+    
+    # 返回值为 Tuple，包含新生成的 user_msg 的主键 ID
+    return response, user_msg.id
 
 @router.get("/history", response_model=List[schemas.EvaluationSummary])
 def get_interview_history(db: Session = Depends(get_db), user_id: int = Depends(get_current_user_id)):
@@ -387,16 +402,75 @@ async def end_interview(interview_id: int, db: Session = Depends(get_db), user_i
     # 2. Call Real LLM Evaluator (Async)
     evaluation_data = await evaluate_full_interview(messages)
 
+    # -------------------------------------------------------------
+    # 🌟 B 同学：表达分析模块接入
+    # -------------------------------------------------------------
+    from evaluation.expression_evaluator import score_expression
+    
+    # 从数据库查出所有的 voice_metrics 并反序列化
+    voice_records = db.query(models.VoiceMetrics).filter(models.VoiceMetrics.interview_id == interview_id).all()
+    metrics_list = []
+    for r in voice_records:
+        if r.raw_json:
+            try:
+                metrics_list.append(json.loads(r.raw_json))
+            except Exception:
+                pass
+                
+    # 调用打分引擎
+    expr_result = score_expression(metrics_list, interview.role)
+    
+    # 声明这三个子分，如果全程无语音输入，默认都是 0.0
+    speech_rate_score = 0.0
+    clarity_score = 0.0
+    confidence_score = 0.0
+    
+    # 如果打分引擎返回了有效数据（说明本场面试使用了语音回答）
+    if expr_result:
+        # 覆盖原来 evaluate_full_interview 瞎猜的 expression_score
+        evaluation_data["expression_score"] = expr_result.get("expression_score", evaluation_data["expression_score"])
+        
+        speech_rate_score = expr_result.get("speech_rate_score", 0.0)
+        clarity_score = expr_result.get("clarity_score", 0.0)
+        confidence_score = expr_result.get("confidence_score", 0.0)
+        
+        # 将我们引擎生成的个性化点评追加到最终的综合建议后面
+        fb = expr_result.get("feedback", {})
+        extra_feedback = f"\n\n【表达分析建议】\n- 语速：{fb.get('speech_rate', '')}\n- 清晰度：{fb.get('clarity', '')}\n- 自信度：{fb.get('confidence', '')}"
+        evaluation_data["recommendations"] = evaluation_data.get("recommendations", "") + extra_feedback
+        
+        # 将完整的前端图表渲染所需结构存在 evaluation_data 中，后面会 dump 进 report_json
+        evaluation_data["expression_metrics"] = expr_result
+
+        # 因为 expression_score 被覆盖了，必须重新计算整场面试的总分 total_score
+        active_scores = [
+            evaluation_data.get("content_score", 0),
+            evaluation_data.get("expression_score", 0),
+            evaluation_data.get("business_scenario_score", 0),
+            evaluation_data.get("problem_solving_score", 0)
+        ]
+        valid_scores = [float(s) for s in active_scores if s is not None and float(s) > 0]
+        if valid_scores:
+            evaluation_data["total_score"] = round(sum(valid_scores) / len(valid_scores), 1)
+
+    # -------------------------------------------------------------
+
     # 3. Save Evaluation to DB
     eval_record = models.Evaluation(
         interview_id=interview_id,
-        content_score=evaluation_data["content_score"],
-        expression_score=evaluation_data["expression_score"],
-        business_scenario_score=evaluation_data["business_scenario_score"],
-        problem_solving_score=evaluation_data["problem_solving_score"],
-        total_score=evaluation_data["total_score"],
-        report_json=json.dumps(evaluation_data),
-        recommendations=evaluation_data["recommendations"]
+        content_score=evaluation_data.get("content_score", 0),
+        expression_score=evaluation_data.get("expression_score", 0),
+        business_scenario_score=evaluation_data.get("business_scenario_score", 0),
+        problem_solving_score=evaluation_data.get("problem_solving_score", 0),
+        total_score=evaluation_data.get("total_score", 0),
+        
+        # 存入 V2 新增的三个子字段
+        speech_rate_score=speech_rate_score,
+        clarity_score=clarity_score,
+        confidence_score=confidence_score,
+        
+        report_json=json.dumps(evaluation_data, ensure_ascii=False),
+        recommendations=evaluation_data.get("recommendations", "")
     )
     db.add(eval_record)
     db.commit()
@@ -406,17 +480,22 @@ async def end_interview(interview_id: int, db: Session = Depends(get_db), user_i
     evaluation_result = {
         "interview_id": interview_id,
         "role": interview.role,
-        "content_score": evaluation_data["content_score"],
-        "expression_score": evaluation_data["expression_score"],
-        "business_scenario_score": evaluation_data["business_scenario_score"],
-        "problem_solving_score": evaluation_data["problem_solving_score"],
-        "total_score": evaluation_data["total_score"],
-        "highlights": evaluation_data["highlights"],
-        "weaknesses": evaluation_data["weaknesses"],
-        "recommendations": evaluation_data["recommendations"],
+        "content_score": evaluation_data.get("content_score", 0),
+        "expression_score": evaluation_data.get("expression_score", 0),
+        "business_scenario_score": evaluation_data.get("business_scenario_score", 0),
+        "problem_solving_score": evaluation_data.get("problem_solving_score", 0),
+        "total_score": evaluation_data.get("total_score", 0),
+        
+        # 将新增的子分暴露给前端
+        "speech_rate_score": speech_rate_score,
+        "clarity_score": clarity_score,
+        "confidence_score": confidence_score,
+        "expression_metrics": expr_result,
+        
+        "highlights": evaluation_data.get("highlights", []),
+        "weaknesses": evaluation_data.get("weaknesses", []),
+        "recommendations": evaluation_data.get("recommendations", ""),
         "created_at": eval_record.created_at
     }
-
-    return {"message": "Interview ended and evaluated successfully.", "evaluation": evaluation_result}
 
     return {"message": "Interview ended and evaluated successfully.", "evaluation": evaluation_result}

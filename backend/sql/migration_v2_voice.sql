@@ -5,10 +5,10 @@
 USE interview_echo;
 
 -- 1. evaluations 表新增三维子分
-ALTER TABLE evaluations
-    ADD COLUMN IF NOT EXISTS speech_rate_score FLOAT DEFAULT 0.0,
-    ADD COLUMN IF NOT EXISTS clarity_score FLOAT DEFAULT 0.0,
-    ADD COLUMN IF NOT EXISTS confidence_score FLOAT DEFAULT 0.0;
+-- ALTER TABLE evaluations
+    -- ADD COLUMN speech_rate_score FLOAT DEFAULT 0.0,
+    -- ADD COLUMN clarity_score FLOAT DEFAULT 0.0,
+    -- ADD COLUMN confidence_score FLOAT DEFAULT 0.0;
 
 -- 2. 新建 voice_metrics 表
 CREATE TABLE IF NOT EXISTS voice_metrics (
