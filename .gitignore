@@ -29,3 +29,7 @@ scripts/
 # RAG向量仓库
 vector_index.json
 
+
+# 表达分析测试音频（本地，每人录音不同）
+backend/tests/audio_samples/
+
