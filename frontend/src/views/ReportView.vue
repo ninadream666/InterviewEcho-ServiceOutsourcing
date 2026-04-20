@@ -112,7 +112,7 @@
               <div>
                 <h3 class="text-lg font-bold text-gray-800 mb-3 flex items-center">
                   <span class="w-1.5 h-5 bg-rose-500 rounded-full mr-2"></span>
-                  习惯填充词监控 (Filler Words)
+                  习惯填充词监控
                 </h3>
                 <div class="bg-rose-50/30 p-4 rounded-lg border border-rose-100 min-h-[5rem] flex items-center">
                   <div v-if="report.expression_metrics.metrics_summary.top_filler_words && report.expression_metrics.metrics_summary.top_filler_words.length > 0" class="flex flex-wrap gap-2">
