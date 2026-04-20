@@ -3,6 +3,7 @@ import uuid
 import shutil
 import tempfile
 from services.stt_service import stt_service
+from services.audio_analysis import analyze_audio
 from sqlalchemy.orm import Session
 from typing import List
 import json
@@ -216,37 +217,65 @@ async def send_message(interview_id: int, msg: schemas.MessageSend, db: Session 
 
 @router.post("/{interview_id}/voice", response_model=schemas.VoiceResponse)
 async def upload_voice(
-    interview_id: int, 
-    file: UploadFile = File(...), 
-    db: Session = Depends(get_db), 
+    interview_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
     user_id: int = Depends(get_current_user_id)
 ):
     # 1. Save uploaded file to temporary location
     temp_dir = tempfile.gettempdir()
     file_extension = os.path.splitext(file.filename)[1] if file.filename else ".webm"
     temp_file_path = os.path.join(temp_dir, f"voice_{uuid.uuid4()}{file_extension}")
-    
+
     try:
         with open(temp_file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
-        
-        # 2. Transcribe using Whisper
-        raw_transcript = stt_service.transcribe(temp_file_path)
-        if not raw_transcript:
+
+        # 2. Whisper 详细转写（一次调用，结果同时给 polish 和 analyze 使用，避免重复跑模型）
+        whisper_result = stt_service.transcribe_detailed(temp_file_path)
+        if not whisper_result or not whisper_result.get("text"):
             raise HTTPException(status_code=400, detail="语音转录失败，请重试或手动输入")
-        
+        raw_transcript = whisper_result["text"]
+
         # 3. AI Polish for punctuation and homophone correction
         transcript = await polish_text(raw_transcript)
-        
+
         # 4. Process the polished text as a message
         ai_msg_resp, user_msg_id = await process_message_logic(interview_id, transcript, db, user_id)
-        
-        # 💡 注：契约 4.1 约定的地方，这里 A 同学会接手获取 user_msg_id，并将音频特征写入 voice_metrics 表
-        
+
+        # 5. 表达分析特征落库（A 部分实现，契约 §2.1）
+        # 失败不影响用户对话主流程，仅记录日志
+        try:
+            metrics = analyze_audio(temp_file_path, whisper_result)
+            if metrics is not None:
+                vm = models.VoiceMetrics(
+                    interview_id=interview_id,
+                    message_id=user_msg_id,
+                    duration_sec=metrics["duration_sec"],
+                    wpm=metrics["wpm"],
+                    pause_ratio=metrics["pause_ratio"],
+                    long_pause_count=metrics["long_pause_count"],
+                    filler_total=metrics["filler_total"],
+                    pitch_mean=metrics["pitch_mean"],
+                    pitch_std=metrics["pitch_std"],
+                    volume_mean=metrics["volume_mean"],
+                    volume_std=metrics["volume_std"],
+                    raw_json=json.dumps(metrics, ensure_ascii=False),
+                )
+                db.add(vm)
+                db.commit()
+                print(f"[voice_metrics] saved for interview={interview_id}, message={user_msg_id}, wpm={metrics['wpm']}")
+            else:
+                print(f"[voice_metrics] skip (audio too short or empty) for interview={interview_id}")
+        except Exception as e:
+            print(f"[voice_metrics] analyze failed: {type(e).__name__}: {e}")
+            import traceback
+            traceback.print_exc()
+
         return schemas.VoiceResponse(transcription=transcript, ai_message=ai_msg_resp)
-        
+
     finally:
-        # 4. Cleanup
+        # 6. Cleanup
         if os.path.exists(temp_file_path):
             try:
                 os.remove(temp_file_path)
@@ -455,24 +484,31 @@ async def end_interview(interview_id: int, db: Session = Depends(get_db), user_i
 
     # -------------------------------------------------------------
 
-    # 3. Save Evaluation to DB
-    eval_record = models.Evaluation(
-        interview_id=interview_id,
-        content_score=evaluation_data.get("content_score", 0),
-        expression_score=evaluation_data.get("expression_score", 0),
-        business_scenario_score=evaluation_data.get("business_scenario_score", 0),
-        problem_solving_score=evaluation_data.get("problem_solving_score", 0),
-        total_score=evaluation_data.get("total_score", 0),
-        
-        # 存入 V2 新增的三个子字段
-        speech_rate_score=speech_rate_score,
-        clarity_score=clarity_score,
-        confidence_score=confidence_score,
-        
-        report_json=json.dumps(evaluation_data, ensure_ascii=False),
-        recommendations=evaluation_data.get("recommendations", "")
-    )
-    db.add(eval_record)
+    # 3. Save Evaluation to DB（upsert：已有则更新，避免重复结束面试时报 IntegrityError）
+    eval_record = db.query(models.Evaluation).filter(
+        models.Evaluation.interview_id == interview_id
+    ).first()
+
+    fields = {
+        "content_score": evaluation_data.get("content_score", 0),
+        "expression_score": evaluation_data.get("expression_score", 0),
+        "business_scenario_score": evaluation_data.get("business_scenario_score", 0),
+        "problem_solving_score": evaluation_data.get("problem_solving_score", 0),
+        "total_score": evaluation_data.get("total_score", 0),
+        # V2 新增的三个子字段
+        "speech_rate_score": speech_rate_score,
+        "clarity_score": clarity_score,
+        "confidence_score": confidence_score,
+        "report_json": json.dumps(evaluation_data, ensure_ascii=False),
+        "recommendations": evaluation_data.get("recommendations", ""),
+    }
+
+    if eval_record is None:
+        eval_record = models.Evaluation(interview_id=interview_id, **fields)
+        db.add(eval_record)
+    else:
+        for k, v in fields.items():
+            setattr(eval_record, k, v)
     db.commit()
     db.refresh(eval_record)
     

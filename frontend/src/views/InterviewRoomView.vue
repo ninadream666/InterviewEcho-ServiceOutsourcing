@@ -264,7 +264,8 @@ const endInterview = async () => {
   ending.value = true
   ElMessage.info('正在为整场面试进行深度评估，这可能需要几十秒，请勿关闭页面...')
   try {
-    const { data } = await api.post(`/interview/${interviewId.value}/end`)
+    // LLM 评估通常 15-60s，单独覆盖全局 10s 超时，避免误报失败
+    const { data } = await api.post(`/interview/${interviewId.value}/end`, null, { timeout: 180000 })
     ElMessage.success('面试结束，报告已生成！')
     
     router.push({
