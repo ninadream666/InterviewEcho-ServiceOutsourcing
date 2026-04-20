@@ -23,9 +23,6 @@ Thumbs.db
 #scripts 整个目录
 scripts/
 
-# AI
-.claude/
-
 # RAG向量仓库
 vector_index.json
 
