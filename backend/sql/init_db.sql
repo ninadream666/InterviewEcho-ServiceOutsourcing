@@ -32,6 +32,8 @@ CREATE TABLE IF NOT EXISTS interviews (
     total_rounds INT DEFAULT 5,
     start_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     end_time TIMESTAMP NULL,
+    repo_context TEXT NULL,         -- v3: GitHub 项目深挖 - 抓取的 repo 摘要
+    custom_questions TEXT NULL,     -- v3: GitHub 项目深挖 - LLM 生成的定制问题
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
