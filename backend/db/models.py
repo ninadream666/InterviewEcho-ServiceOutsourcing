@@ -33,6 +33,9 @@ class Interview(Base):
     status = Column(String(20), default="in_progress")
     start_time = Column(TIMESTAMP, default=datetime.utcnow)
     end_time = Column(TIMESTAMP, nullable=True)
+    # —— GitHub 项目深挖（v3 新增，参见 GitHub_Deep_Dive_Plan.md） ——
+    repo_context = Column(Text, nullable=True)      # JSON list：各 repo 的抓取摘要（≤ 3 个）
+    custom_questions = Column(Text, nullable=True)  # JSON list：LLM 针对 repos 生成的定制问题
 
     user = relationship("User")
     evaluations = relationship("Evaluation", uselist=False, back_populates="interview")
