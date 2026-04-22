@@ -28,7 +28,7 @@
 ### 2. 后端配置 (Python 3.12)
 1. 进入 `backend` 目录，安装依赖: `pip install -r requirements.txt`
 2. 配置 `.env`: 配置好自己的mysql信息、大模型信息
-3. **构建 RAG 索引**: 运行 `python rag/build_index.py` (这会通过 Embedding API 向量knowledge-base中的RAG知识库)。
+3. **构建 RAG 索引**: 运行 `python -m rag.build_index` (这会通过 Embedding API 向量knowledge-base中的RAG知识库)。
 4. 启动后端: `uvicorn main:app --reload`
 
 ### 3. 前端启动
