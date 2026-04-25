@@ -54,6 +54,12 @@
       :role-key="selectedRole?.key"
       @confirm="onSettingsConfirm"
     />
+
+    <!-- W4.4.3 中断恢复弹窗 -->
+    <ResumeDialog 
+      ref="resumeDialogRef" 
+      @resume="handleExecuteResume"
+    />
   </div>
 </template>
 
@@ -62,23 +68,46 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '@/api'
 import InterviewSettingsDialog from '@/components/business/InterviewSettingsDialog.vue'
+import ResumeDialog from '@/components/business/ResumeDialog.vue'
 
 const router = useRouter()
 const roles = ref([])
 const settingsDialogRef = ref(null)
+const resumeDialogRef = ref(null)
 const selectedRole = ref(null)
 const starting = ref(false)
 const startingTitle = ref('正在准备面试')
 const startingHint = ref('请稍候...')
 
 onMounted(async () => {
-  try {
-    const { data } = await api.get('/interview/roles')
-    roles.value = data
-  } catch (err) {
-    console.error('Failed to fetch roles:', err)
-  }
+  // 1. 获取岗位
+  api.get('/interview/roles')
+    .then(res => { roles.value = res.data })
+    .catch(err => console.error('Failed to fetch roles:', err))
+
+  // 2. 探测中断（【核心修复】将 Mock 拦截下放到组件内，确保不污染全局环境）
+  api.get('/interview/incomplete')
+    .then(res => {
+      if (res.data?.has_incomplete) {
+        resumeDialogRef.value.open(res.data.interview)
+      }
+    })
+    .catch((err) => {
+      // 拦截 404 (未实现) 或 网络错误，注入假数据
+      if (err.response?.status === 404 || !err.response) {
+        console.log('【Mock API】组件内拦截到 /incomplete 请求，注入模拟数据')
+        resumeDialogRef.value.open({
+          id: 999,
+          role: 'Java后端开发工程师 (Mock)',
+          start_time: new Date().toISOString()
+        })
+      }
+    })
 })
+
+const handleExecuteResume = (interviewId) => {
+  router.push({ name: 'InterviewRoom', params: { role: 'Resume' }, query: { interviewId } })
+}
 
 const startInterview = (role) => {
   selectedRole.value = role
@@ -86,7 +115,7 @@ const startInterview = (role) => {
 }
 
 const onSettingsConfirm = async (settings) => {
-  // 若包含 GitHub 项目，后端需要抓取 + LLM 生成问题，延时到 180s
+  // 完美恢复：若包含 GitHub 项目，后端需要抓取 + LLM 生成问题，延时到 180s
   const hasRepos = (settings.repo_urls || []).length > 0
   const timeout = hasRepos ? 180000 : 30000
 
